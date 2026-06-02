@@ -1,4 +1,5 @@
 pull_secret.*
+pull-secret.*
 kubeconfig
 .ansible
 .vscode
@@ -16,3 +17,7 @@ gen
 .idea/
 .idea/workspace.xml
 
+# Self-sched-deploy generated files
+scripts/self-sched-deploy/vars/config.env
+scripts/self-sched-deploy/vars/state.env
+scripts/self-sched-deploy/repos/

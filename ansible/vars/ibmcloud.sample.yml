@@ -18,16 +18,16 @@ ocp_build: "ga"
 # For "ga" builds, examples are "latest-4.17", "latest-4.16", "4.17.17" or "4.16.35"
 # For "dev" builds, examples are "candidate-4.17", "candidate-4.16" or "latest"
 # For "ci" builds, an example is "4.19.0-0.nightly-2025-02-25-035256"
-ocp_version: "latest-4.18"
+ocp_version: "latest-4.21"
 
 # Enables Operators CNV and LSO install at deployment timeframe (GA releases only)
 enable_cnv_install: false
 
 ssh_private_key_file: ~/.ssh/ibmcloud_id_rsa
 ssh_public_key_file: ~/.ssh/ibmcloud_id_rsa.pub
-# Place your pull_secret.txt in the base directory of the cloned jetlag repo, Example:
-# [root@<bastion> jetlag]# ls pull_secret.txt
-pull_secret: "{{ lookup('file', '../pull_secret.txt') }}"
+# Place your pull-secret.txt in the base directory of the cloned jetlag repo, Example:
+# [root@<bastion> jetlag]# ls pull-secret.txt
+pull_secret: "{{ lookup('file', '../pull-secret.txt') }}"
 
 ################################################################################
 # Bastion node vars

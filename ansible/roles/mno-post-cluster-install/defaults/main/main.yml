@@ -18,12 +18,15 @@ wait_until_cluster_stable: true
 minimum_stable_period: 2m
 wait_until_cluster_stable_timeout: 20m
 
+# Remove assisted-installer namespace from cluster after installation
+remove_assisted_installer_namespace: false
+
 # Deploy performance-dashboards
 setup_performance_dashboards: false
 
 # Deploy ansible-automation-platform operator
 setup_ansible_automation_platform: false
-aap_channel: stable-2.4-cluster-scoped
+aap_channel: stable-2.6-cluster-scoped
 aap_enable_overrides: false
 # MAX_CONCURRENT_RECONCILES_ANSIBLEJOB_TOWER_ANSIBLE_COM
 aap_override_max_concurrent_ajt: 10
@@ -43,14 +46,21 @@ migrate_monitoring: false
 # by controlplane_localstorage_configuration or worker_localstorage_configuration
 apply_cluster_monitoring_config: false
 
-# Set the rention period for prometheus to allow up to 15 days of data by default
+# Prometheus storage settings
 prometheus_retention_period: 15d
+prometheus_storage_class: localstorage-sc
+prometheus_storage_size: 50Gi
 
 # Minio deployment is an object storage pod for use with ACM
 setup_minio: false
-minio_image_tag: RELEASE.2022-04-01T03-41-39Z
+minio_image_tag: RELEASE.2025-09-07T16-13-09Z
 minio_pv_storageclass: localstorage2-sc
 
 # Performance-addon-operator vars_files
 install_performance_addon_operator: false
 ocp_channel: "{{ openshift_version }}"
+
+# Additional labels to apply to worker nodes post-install (list of key=value or key= strings)
+post_install_node_labels:
+  - jetlag=true
+  # - cluster.ocs.openshift.io/openshift-storage=

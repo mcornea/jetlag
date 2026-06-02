@@ -38,6 +38,48 @@
   - public_vlan | default(false)
   - sno_use_lab_dhcp | default(false)
 
+- name: Validate public_vlan and enable_bond
+  fail:
+    msg: "public_vlan and enable_bond can not both be true, only enable one or the other"
+  when:
+  - public_vlan | default(false)
+  - enable_bond | default(false)
+
+- name: Validate enable_bond and sno_use_lab_dhcp
+  fail:
+    msg: "enable_bond and sno_use_lab_dhcp can not both be true, only enable one or the other"
+  when:
+  - enable_bond | default(false)
+  - sno_use_lab_dhcp | default(false)
+
+- name: Validate enable_bond_vlan requires enable_bond
+  fail:
+    msg: "enable_bond_vlan requires enable_bond to be true"
+  when:
+  - enable_bond_vlan | default(false)
+  - not (enable_bond | default(false))
+
+- name: Validate bond_vlan_id range
+  fail:
+    msg: "bond_vlan_id must be between 1 and 4094"
+  when:
+  - enable_bond_vlan | default(false)
+  - bond_vlan_id | default(10) < 1 or bond_vlan_id | default(10) > 4094
+
+- name: Validate setup_bastion_proxy and setup_bastion_registry are mutually exclusive
+  fail:
+    msg: "setup_bastion_proxy and setup_bastion_registry cannot both be true. Use either a forward proxy OR a local mirror registry, not both."
+  when:
+  - setup_bastion_proxy | default(false)
+  - setup_bastion_registry | default(false)
+
+- name: Validate setup_bastion_proxy and use_bastion_registry are mutually exclusive
+  fail:
+    msg: "setup_bastion_proxy and use_bastion_registry cannot both be true. Use either a forward proxy OR a local mirror registry, not both."
+  when:
+  - setup_bastion_proxy | default(false)
+  - use_bastion_registry | default(false)
+
 - name: Check for RHEL/Centos (Bastion Validation)
   fail:
     msg: "Expecting RHEL or Centos for a Bastion OS"
@@ -108,3 +150,60 @@
   fail:
     msg: "Rerun create-inventory to fix this"
   when: hostvars | json_query('(*)[?network_mac]')
+
+- name: Validate network configuration
+  when:
+  - lab in rh_labs
+  block:
+  - name: Validate controlplane_network is a list
+    fail:
+      msg: "controlplane_network must be a list, got {{ controlplane_network }}"
+    when: controlplane_network is not sequence or controlplane_network is string
+
+  - name: Validate controlplane_network_prefix is a list
+    fail:
+      msg: "controlplane_network_prefix must be a list, got {{ controlplane_network_prefix }}"
+    when: controlplane_network_prefix is not sequence or controlplane_network_prefix is string
+
+  - name: Validate cluster_network_cidr is a list
+    fail:
+      msg: "cluster_network_cidr must be a list, got {{ cluster_network_cidr }}"
+    when: cluster_network_cidr is not sequence or cluster_network_cidr is string
+
+  - name: Validate cluster_network_host_prefix is a list
+    fail:
+      msg: "cluster_network_host_prefix must be a list, got {{ cluster_network_host_prefix }}"
+    when: cluster_network_host_prefix is not sequence or cluster_network_host_prefix is string
+
+  - name: Validate service_network_cidr is a list
+    fail:
+      msg: "service_network_cidr must be a list, got {{ service_network_cidr }}"
+    when: service_network_cidr is not sequence or service_network_cidr is string
+
+  - name: Validate controlplane_network has at least one element
+    fail:
+      msg: "controlplane_network must have at least one element"
+    when: controlplane_network | length == 0
+
+  - name: Validate controlplane_network_prefix has at least one element
+    fail:
+      msg: "controlplane_network_prefix must have at least one element"
+    when: controlplane_network_prefix | length == 0
+
+  - name: Validate controlplane_network and controlplane_network_prefix have same length
+    fail:
+      msg: "controlplane_network and controlplane_network_prefix must have the same length"
+    when: controlplane_network | length != controlplane_network_prefix | length
+
+  - name: Validate dual stack network configuration
+    when: controlplane_network | length > 1
+    block:
+    - name: Validate first controlplane_network is IPv4
+      fail:
+        msg: "For dual stack, controlplane_network[0] must be IPv4, got {{ controlplane_network[0] }}"
+      when: not (controlplane_network[0] | ansible.utils.ipv4)
+
+    - name: Validate second controlplane_network is IPv6
+      fail:
+        msg: "For dual stack, controlplane_network[1] must be IPv6, got {{ controlplane_network[1] }}"
+      when: not (controlplane_network[1] | ansible.utils.ipv6)

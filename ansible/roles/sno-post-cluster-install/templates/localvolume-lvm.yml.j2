@@ -1,0 +1,17 @@
+---
+apiVersion: "local.storage.openshift.io/v1"
+kind: "LocalVolume"
+metadata:
+  name: "localvolume-lvm"
+  namespace: "openshift-local-storage"
+spec:
+  storageClassDevices:
+  - storageClassName: "localstorage-sc"
+    volumeMode: {{ localstorage_lvm_volume_mode }}
+{% if localstorage_lvm_volume_mode == "Filesystem" %}
+    fsType: xfs
+{% endif %}
+    devicePaths:
+{% for i in range(controlplane_localstorage_lv_count) %}
+      - "/dev/vg_ls/lv_cp_tv{{ '%02d' % i }}"
+{% endfor %}

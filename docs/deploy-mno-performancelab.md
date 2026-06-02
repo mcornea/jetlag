@@ -120,14 +120,13 @@ for subsequent steps:
 [root@<bastion> jetlag]#
 ```
 
-6. Download your `pull_secret.txt` from [console.redhat.com/openshift/downloads](https://console.redhat.com/openshift/downloads) into the root directory of your Jetlag repo on the bastion. You'll find the Pull Secret near the end of
+6. Download your `pull-secret.txt` from [console.redhat.com/openshift/downloads](https://console.redhat.com/openshift/downloads) into the root directory of your Jetlag repo on the bastion. You'll find the Pull Secret near the end of
 the long downloads page, in the section labeled "Tokens". You can either click the "Download" button, and then copy the
-downloaded file to `~/jetlag/pull_secret.txt` on the bastion (notice that Jetlag expects an underscore (`_`) while the
-file will download with a hyphen (`-`)); *or* click on the "Copy" button, and then paste the clipboard into the terminal
-after typing `cat >pull_secret.txt` on the bastion to create the expected filename:
+downloaded file to `~/jetlag/pull-secret.txt` on the bastion; *or* click on the "Copy" button, and then paste the clipboard into the terminal
+after typing `cat >pull-secret.txt` on the bastion to create the expected filename:
 
 ```console
-[root@<bastion> jetlag]# cat >pull_secret.txt
+[root@<bastion> jetlag]# cat >pull-secret.txt
 {
   "auths": {
     "quay.io": {
@@ -202,52 +201,29 @@ release. Checkout https://mirror.openshift.com/pub/openshift-v4/clients/ocp/ for
 of available builds for `ga` releases and https://mirror.openshift.com/pub/openshift-v4/clients/ocp-dev-preview/
 for a list of `dev` releases. Nightly `ci` builds are tricky and require determining
 exact builds you can use, an example of `ocp_version` with `ocp_build: ci` is
-`4.19.0-0.nightly-2025-02-25-035256`.
+`4.19.0-0.nightly-2025-02-25-035256`, For 'ci' builds check latest nightly from  https://amd64.ocp.releases.ci.openshift.org/.
 
-Note: user has to add registry.ci.openshift.org token in pull_secret.txt for `ci` builds.
+
+Note: user has to add registry.ci.openshift.org token in pull-secret.txt for `ci` builds.
 
 ### Bastion node vars
 
 Set `smcipmitool_url` to the location of the Supermicro SMCIPMITool binary. Since you must accept a EULA in order to download, it is suggested to download the file and place it onto a local http server, that is accessible to your laptop or deployment machine. You can then always reference that URL. Alternatively, you can download it to the `ansible/` directory of your Jetlag repo clone and rename the file to `smcipmitool.tar.gz`. You can find the file [here](https://www.supermicro.com/SwDownload/SwSelect_Free.aspx?cat=IPMI).
 
-The system type determines the values of `bastion_lab_interface` and `bastion_controlplane_interface`.
+**Network Interface Configuration:**
 
-Using the performance lab networking table, determine the names of the nic per network.
-
-* `bastion_lab_interface` will always be set to the nic name under "Public Network"
-* `bastion_controlplane_interface` should be set to the nic name under "EM1" for this guide
-
-For Dell r750 set those vars to the following
-
-```yaml
-bastion_lab_interface: eno8303
-bastion_controlplane_interface: ens3f0
-```
+Jetlag automatically detects and configures network interfaces for common hardware in Scale Lab and Performance Lab using the `hw_nic_name` [mapping](../ansible/vars/lab.yml). You only need to manually set these if you want to override the defaults. For more details see [tips-and-vars.md](tips-and-vars.md).
 
 Here you can see a network diagram for the multi node metal cluster on Dell r750 with 3 workers and 3 master nodes:
 
 ![MNO Cluster](img/mno_cluster.png)
-
-Double check your nic names with your actual bastion machine.
 
 ** If you desire to use a *different network* than "Network 1" for your controlplane network then you will have to append additional overrides to the extra vars portion of the `all.yml` vars file.
 See [tips and vars](tips-and-vars.md#using-other-network-interfaces) for more information
 
 ### OCP node vars
 
-The same chart provided by the performance lab for the bastion machine, is used
-to identify the nic name for `controlplane_lab_interface`.
-
-* `controlplane_lab_interface` should always be set to the nic name under "Public
-Network" for the specific system type
-
-For Dell r750 set `controlplane_lab_interface` var to the following
-
-```yaml
-controlplane_lab_interface: eno8303
-```
-
-** If your machine types are not homogeneous, then you will have to manually edit your generated inventory file to correct any nic names until this is reasonably automated.
+Network configuration is automatically detected based on lab and hardware type. See the [Network Interface Configuration](#bastion-node-vars) section above.
 
 ### Deploy in the public VLAN
 
@@ -260,17 +236,24 @@ In order to deploy a cluster using the public VLAN, set the variable `public_vla
 - `controlplane_network_prefix`: public VLAN network mask
 - `controlplane_network_gateway`: public VLAN default gateway
 
-You will still have to configure the proper `bastion_controlplane_interface` for public VLAN usage. For purposes of this quickstart and r750 hardware, the correct `bastion_controlplane_interface` is `ens6f1`. This is easily identifible in the table the performance lab provides as the last interface or in the case of r750s "EM4" interface.
-
 When the deployment is completed, the cluster API and routes should be reachable directly from the VPN.
 
 ### Extra vars
 
-For multi node deployment of OCP 4.13 or later, it's advisable to configure the following extra variables.
-- control_plane_install_disk
-- worker_install_disk
+**Install Disk Configuration:**
 
-These variables ensure disk references are made using by-path notation instead of symbolic links. This approach is recommended due to potential reliability issues with symbolic links. The values mentioned [Review `all.yml`](#review-vars-allyml) are correct for the Performance lab R750 instances. Please refer to [tips and vars](tips-and-vars.md#extra-vars-for-by-path-disk-reference) to determine the correct paths for other instances.
+For most common hardware types in Performance Lab (r740xd, r750, r7425, r7525, r760, 6029p, xe8640, xe9680),
+Jetlag **automatically selects** the correct install disk using persistent `/dev/disk/by-path/` references.
+These automatic mappings are defined in `ansible/vars/lab.yml` under `hw_install_disk`.
+
+You **only need to set** `control_plane_install_disk` and `worker_install_disk` if:
+- Your hardware model is not in the automatic mappings
+- You need a different disk than the default for your hardware model
+- You want to explicitly override the automatic selection
+
+The values shown in the example [Review `all.yml`](#review-vars-allyml) below are for Dell r750 as a reference.
+Please refer to [tips and vars](tips-and-vars.md#install-disk-by-path-vars) for the complete list of automatic
+mappings and guidance on finding disk paths for unsupported hardware.
 
 ### Disconnected and ipv6 vars
 
@@ -321,13 +304,12 @@ ocp_build: "ga"
 # For "ga" builds, examples are "latest-4.17", "latest-4.16", "4.17.17" or "4.16.35"
 # For "dev" builds, examples are "candidate-4.17", "candidate-4.16" or "latest"
 # For "ci" builds, an example is "4.19.0-0.nightly-2025-02-25-035256"
-ocp_version: "latest-4.18"
+ocp_version: "latest-4.21"
 
 # Set to true ONLY if you have a public routable vlan in your scalelab or performancelab cloud.
 # Autoconfigures cluster_name, base_dns_name, controlplane_network_interface_idx, controlplane_network,
 # controlplane_network_prefix, and controlplane_network_gateway to the values required for your cloud's public VLAN.
 # SNO configures only the first cluster on the api dns resolvable address
-# MNO/SNO still requires the correct value for bastion_controlplane_interface
 public_vlan: false
 
 # SNOs only require a single IP address and can be deployed using the lab DHCP interface instead of a private or
@@ -343,9 +325,9 @@ enable_cnv_install: false
 
 ssh_private_key_file: ~/.ssh/id_rsa
 ssh_public_key_file: ~/.ssh/id_rsa.pub
-# Place your pull_secret.txt in the base directory of the cloned Jetlag repo, Example:
-# [root@<bastion> jetlag]# ls pull_secret.txt
-pull_secret: "{{ lookup('file', '../pull_secret.txt') }}"
+# Place your pull-secret.txt in the base directory of the cloned Jetlag repo, Example:
+# [root@<bastion> jetlag]# ls pull-secret.txt
+pull_secret: "{{ lookup('file', '../pull-secret.txt') }}"
 
 ################################################################################
 # Bastion node vars
@@ -354,8 +336,10 @@ bastion_cluster_config_dir: /root/{{ cluster_type }}
 
 smcipmitool_url:
 
-bastion_lab_interface: eno8303
-bastion_controlplane_interface: ens3f0
+# Network interfaces - auto-configured based on lab and hardware type
+# Uncomment to override:
+# bastion_lab_interface: eno8303
+# bastion_controlplane_interface: ens3f0
 
 # Sets up Gogs a self-hosted git service on the bastion
 setup_bastion_gogs: false
@@ -369,8 +353,9 @@ use_bastion_registry: false
 ################################################################################
 # OCP node vars
 ################################################################################
-# Network configuration for all mno/sno cluster nodes
-controlplane_lab_interface: eno8303
+# Network configuration - auto-configured based on lab and hardware type
+# Uncomment to override:
+# controlplane_lab_interface: eno8303
 
 ################################################################################
 # Extra vars

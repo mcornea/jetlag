@@ -1,0 +1,62 @@
+---
+# Bastion proxy tasks - Deploy Squid forward proxy
+
+- name: Create squid directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: '0777'
+  loop:
+    - "{{ proxy_cache_dir }}"
+    - "{{ proxy_conf_dir }}"
+    - /var/log/squid
+
+- name: Template squid configuration
+  template:
+    src: squid.conf.j2
+    dest: "{{ proxy_conf_dir }}/squid.conf"
+    mode: '0644'
+  notify: Restart squid proxy
+
+- name: Create squid-proxy pod
+  containers.podman.podman_pod:
+    name: squid-proxy
+    network: host
+    state: started
+
+- name: Ensure squid-proxy pod is up
+  containers.podman.podman_pod:
+    name: squid-proxy
+    network: host
+    state: restarted
+
+- name: Create squid proxy container in squid-proxy pod
+  containers.podman.podman_container:
+    pod: squid-proxy
+    network: host
+    name: squid
+    image: "{{ proxy_container_image }}"
+    user: root
+    volume:
+      - "{{ proxy_conf_dir }}/squid.conf:/etc/squid/squid.conf:z"
+      - "{{ proxy_cache_dir }}:/var/spool/squid:z"
+      - /var/log/squid:/var/log/squid:z
+    state: started
+
+- name: Open firewall port for proxy
+  firewalld:
+    port: "{{ proxy_port }}/tcp"
+    permanent: true
+    immediate: true
+    state: enabled
+  when: ansible_facts.services['firewalld.service'] is defined
+
+- name: Verify squid proxy is responding
+  uri:
+    url: "http://localhost:{{ proxy_port }}"
+    method: GET
+    status_code: [400, 403]
+  register: proxy_check
+  retries: 5
+  delay: 3
+  until: proxy_check.status in [400, 403]

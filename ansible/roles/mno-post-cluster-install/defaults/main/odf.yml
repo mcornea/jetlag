@@ -1,0 +1,25 @@
+---
+# OpenShift Data Foundation (ODF) vars
+
+# Master toggle to install ODF
+setup_odf: false
+
+# ODF operator subscription channel
+odf_channel: stable-4.21
+
+# StorageCluster configuration
+
+# Number of storageDeviceSets; increment by 1 for each set of 3 block PVs
+odf_storagecluster_device_count: 1
+
+odf_storagecluster_replica_count: 3
+
+# Storage size per PVC in each device set (minimum 100Gi, maximum 4Ti)
+odf_storagecluster_storage_size: 100Gi
+
+# StorageClass backing the device set PVCs - should match localvolume-disk-sc from LSO
+odf_storagecluster_storage_class: localstorage-disk-sc
+
+# Wait for the StorageCluster to reach Ready status before proceeding
+wait_for_odf_storagecluster_ready: false
+wait_for_odf_storagecluster_ready_timeout: 20m

@@ -43,6 +43,71 @@
     ocpinventory_sno_nodes: []
     ocpinventory_hv_nodes: []
 
+- name: Validate allocation has enough nodes for MNO deployment
+  assert:
+    that:
+      - ocpinventory.json.nodes | length >= 4
+    fail_msg: >-
+      MNO deployment requires at least 4 nodes (1 bastion + 3 controlplane),
+      but the allocation '{{ lab_cloud }}' only has {{ ocpinventory.json.nodes | length }} node(s).
+      Verify your lab allocation has enough machines.
+    success_msg: "Allocation has {{ ocpinventory.json.nodes | length }} nodes (minimum 4 for MNO)"
+  when: cluster_type == "mno"
+
+- name: Validate allocation has enough nodes for VMNO deployment
+  assert:
+    that:
+      - ocpinventory.json.nodes | length >= 2
+    fail_msg: >-
+      VMNO deployment requires at least 2 nodes (1 bastion + 1 hypervisor),
+      but the allocation '{{ lab_cloud }}' only has {{ ocpinventory.json.nodes | length }} node(s).
+      Verify your lab allocation has enough machines.
+    success_msg: "Allocation has {{ ocpinventory.json.nodes | length }} nodes (minimum 2 for VMNO)"
+  when: cluster_type == "vmno"
+
+- name: Validate allocation has enough nodes for requested hypervisor count
+  assert:
+    that:
+      - ocpinventory.json.nodes | length >= (hv_count | int) + 1
+    fail_msg: >-
+      VMNO deployment with {{ hv_count }} hypervisor(s) requires at least {{ (hv_count | int) + 1 }} nodes
+      (1 bastion + {{ hv_count }} hypervisors),
+      but the allocation '{{ lab_cloud }}' only has {{ ocpinventory.json.nodes | length }} node(s).
+      Either reduce hv_count or request a larger allocation.
+    success_msg: "Allocation has {{ ocpinventory.json.nodes | length }} nodes (need {{ (hv_count | int) + 1 }} for {{ hv_count }} hypervisors)"
+  when:
+    - cluster_type == "vmno"
+    - hv_count is defined
+    - hv_count != None
+    - hv_count | int > 0
+
+- name: Validate allocation has enough nodes for requested worker count
+  assert:
+    that:
+      - ocpinventory.json.nodes | length >= (worker_node_count | int) + 4
+    fail_msg: >-
+      MNO deployment with {{ worker_node_count }} worker(s) requires at least {{ (worker_node_count | int) + 4 }} nodes
+      (1 bastion + 3 controlplane + {{ worker_node_count }} workers),
+      but the allocation '{{ lab_cloud }}' only has {{ ocpinventory.json.nodes | length }} node(s).
+      Either reduce worker_node_count or request a larger allocation.
+    success_msg: "Allocation has {{ ocpinventory.json.nodes | length }} nodes (need {{ (worker_node_count | int) + 4 }} for {{ worker_node_count }} workers)"
+  when:
+    - cluster_type == "mno"
+    - worker_node_count is defined
+    - worker_node_count != None
+    - worker_node_count | int > 0
+
+- name: Validate allocation has enough nodes for SNO deployment
+  assert:
+    that:
+      - ocpinventory.json.nodes | length >= 2
+    fail_msg: >-
+      SNO deployment requires at least 2 nodes (1 bastion + 1 SNO node),
+      but the allocation '{{ lab_cloud }}' only has {{ ocpinventory.json.nodes | length }} node(s).
+      Verify your lab allocation has enough machines.
+    success_msg: "Allocation has {{ ocpinventory.json.nodes | length }} nodes (minimum 2 for SNO)"
+  when: cluster_type == "sno"
+
 - name: Get bastion foreman data (For lab ip address)
   uri:
     url: "https://{{ labs[lab]['foreman'] }}/api/hosts/{{ bastion_machine }}"
@@ -80,16 +145,22 @@
       validate_certs: false
     register: quads_assignment
 
-  - name: Public VLAN - Set addressing information
+  - name: Public VLAN - Set addressing information (IPv4 only)
     set_fact:
-      controlplane_network: "{{ quads_assignment.json.vlan.ip_range }}"
-      controlplane_network_prefix: "{{ quads_assignment.json.vlan.ip_range | ipaddr('prefix') }}"
+      controlplane_network:
+        - "{{ quads_assignment.json.vlan.ip_range }}"
+      controlplane_network_prefix:
+        - "{{ quads_assignment.json.vlan.ip_range | ipaddr('prefix') }}"
       controlplane_network_gateway: "{{ quads_assignment.json.vlan.gateway }}"
 
   - name: Public VLAN - Set cluster_name if was set as default
     set_fact:
       cluster_name: "vlan{{ quads_assignment.json.vlan.vlan_id }}"
     when: cluster_name == "mno"
+
+  - name: Public VLAN - Set hypervisor_nic_interface_idx to -1 for the last interface
+    set_fact:
+      hypervisor_nic_interface_idx: -1
 
 - name: Auto-configure bastion lab interface (only when not explicitly set)
   set_fact:
@@ -115,6 +186,29 @@
     - controlplane_lab_interface is not defined
     - lab in hw_nic_name
     - machine_type in hw_nic_name[lab]
+
+- name: Auto-configure bastion bond interfaces (only when bonding is enabled)
+  set_fact:
+    bastion_bond0_interface1: "{{ hw_nic_name[lab][machine_type][bond0_port1|int] }}"
+    bastion_bond0_interface2: "{{ hw_nic_name[lab][machine_type][bond0_port2|int] }}"
+  when:
+    - enable_bond | default(false)
+    - lab in hw_nic_name
+    - machine_type in hw_nic_name[lab]
+    - hw_nic_name[lab][machine_type] | length > (bond0_port2|int)
+
+- name: Bond configuration for scale/performance labs
+  when: (lab in rh_labs) and enable_bond | default(false) and not (public_vlan | default(false))
+  block:
+
+  - name: Auto-configure bond interface names from hardware mapping
+    set_fact:
+      bond0_interface1: "{{ hw_nic_name[lab][machine_type][bond0_port1|int] }}"
+      bond0_interface2: "{{ hw_nic_name[lab][machine_type][bond0_port2|int] }}"
+    when:
+      - lab in hw_nic_name
+      - machine_type in hw_nic_name[lab]
+      - hw_nic_name[lab][machine_type] | length > (bond0_port2|int)
 
 - name: Multi node cluster type tasks
   when: cluster_type == "mno"
@@ -176,6 +270,24 @@
     with_items: "{{ controlplane2_foreman_data.json.interfaces }}"
     when: item.primary|bool
 
+  - name: MNO - Set bond MAC addresses for controlplane nodes (when bonding is enabled)
+    when: enable_bond | default(false) and not (public_vlan | default(false))
+    block:
+    - name: MNO - Set controlplane0 bond mac addresses
+      set_fact:
+        controlplane0_bond0_macs: >-
+          {{ ocpinventory.json.nodes[1].mac[bond0_port1|int - 1] ~ ',' ~ ocpinventory.json.nodes[1].mac[bond0_port2|int - 1] }}
+
+    - name: MNO - Set controlplane1 bond mac addresses
+      set_fact:
+        controlplane1_bond0_macs: >-
+          {{ ocpinventory.json.nodes[2].mac[bond0_port1|int - 1] ~ ',' ~ ocpinventory.json.nodes[2].mac[bond0_port2|int - 1] }}
+
+    - name: MNO - Set controlplane2 bond mac addresses
+      set_fact:
+        controlplane2_bond0_macs: >-
+          {{ ocpinventory.json.nodes[3].mac[bond0_port1|int - 1] ~ ',' ~ ocpinventory.json.nodes[3].mac[bond0_port2|int - 1] }}
+
   - name: MNO - Set max number of nodes
     set_fact:
       max_nodes: "{{ ocpinventory.json.nodes|length }}"
@@ -201,10 +313,25 @@
     user: "{{ lab_cloud }}"
     password: "{{ bmc_password }}"
     validate_certs: false
-  with_items:
-    - "{{ ocpinventory_worker_nodes }}"
+  loop: "{{ ocpinventory_worker_nodes }}"
   when: cluster_type == "mno"
   register: mno_foreman_data
+
+- name: MNO - Add bond MAC addresses to worker nodes (when bonding is enabled)
+  when: cluster_type == "mno" and enable_bond | default(false) and not (public_vlan | default(false))
+  set_fact:
+    ocpinventory_worker_nodes: >-
+      {{
+        ocpinventory_worker_nodes[:idx] +
+        [ocpinventory_worker_nodes[idx] | combine({
+          'bond0_macs': (item.mac[bond0_port1|int - 1] + ',' + item.mac[bond0_port2|int - 1])
+        })] +
+        ocpinventory_worker_nodes[idx + 1:]
+      }}
+  loop: "{{ ocpinventory_worker_nodes }}"
+  loop_control:
+    loop_var: item
+    index_var: idx
 
 - name: Single Node OpenShift cluster type tasks
   when: cluster_type == "sno"
@@ -213,6 +340,20 @@
   - name: SNO - Set ocpinventory sno nodes
     set_fact:
       ocpinventory_sno_nodes: "{{ ocpinventory.json.nodes[1:] }}"
+
+  - name: SNO - Set max number of nodes
+    set_fact:
+      max_nodes: "{{ ocpinventory.json.nodes|length }}"
+    when: worker_node_count is not defined or worker_node_count == None
+
+  - name: SNO - Set max number of nodes (worker_node_count set)
+    set_fact:
+      max_nodes: "{{ worker_node_count|int + 2 }}"
+    when: worker_node_count is defined and worker_node_count != None
+
+  - name: SNO - Set ocpinventory worker nodes (for scale-out scenarios)
+    set_fact:
+      ocpinventory_worker_nodes: "{{ ocpinventory.json.nodes[2:max_nodes|int] }}"
 
   - name: SNO - Get lab data for each sno
     uri:
@@ -223,6 +364,45 @@
       validate_certs: false
     register: sno_foreman_data
     loop: "{{ ocpinventory_sno_nodes }}"
+
+  - name: SNO - Get lab mac address for worker nodes
+    uri:
+      url: "https://{{ labs[lab]['foreman'] }}/api/hosts/{{ item.pm_addr | replace('mgmt-','') }}"
+      force_basic_auth: yes
+      user: "{{ lab_cloud }}"
+      password: "{{ bmc_password }}"
+      validate_certs: false
+    loop: "{{ ocpinventory_worker_nodes }}"
+    when: cluster_type == "sno" and ocpinventory_worker_nodes|length > 0
+    register: sno_worker_foreman_data
+    
+  - name: SNO - Auto-configure bond interface names from hardware mapping (when bonding is enabled)
+    set_fact:
+      bond0_interface1: "{{ hw_nic_name[lab][machine_type][bond0_port1|int] }}"
+      bond0_interface2: "{{ hw_nic_name[lab][machine_type][bond0_port2|int] }}"
+    when:
+      - enable_bond | default(false) and not (public_vlan | default(false))
+      - lab in hw_nic_name
+      - machine_type in hw_nic_name[lab]
+      - hw_nic_name[lab][machine_type] | length > (bond0_port2|int)
+
+
+
+  - name: SNO - Add bond MAC addresses to SNO nodes (when bonding is enabled)
+    when: enable_bond | default(false) and not (public_vlan | default(false))
+    set_fact:
+      ocpinventory_sno_nodes: >-
+        {{
+          ocpinventory_sno_nodes[:idx] +
+          [ocpinventory_sno_nodes[idx] | combine({
+            'bond0_macs': (item.mac[bond0_port1|int - 1 ] + ',' + item.mac[bond0_port2|int - 1])
+          })] +
+          ocpinventory_sno_nodes[idx + 1:]
+        }}
+    loop: "{{ ocpinventory_sno_nodes }}"
+    loop_control:
+      loop_var: item
+      index_var: idx
 
   - name: set json query fact
     set_fact:
@@ -248,7 +428,9 @@
   block:
   - name: VMNO - Set ocpinventory hv nodes
     set_fact:
-      ocpinventory_hv_nodes: "{{ ocpinventory.json.nodes[1:] }}"
+      ocpinventory_hv_nodes: "{{ ocpinventory.json.nodes[1:max_hv_nodes|int] }}"
+    vars:
+      max_hv_nodes: "{{ (hv_count|int + 1) if hv_count != None else ocpinventory.json.nodes|length }}"
 
 - name: Hypervisor tasks to determine if there is a 2nd disk available
   when: hv_inventory or cluster_type == "vmno"

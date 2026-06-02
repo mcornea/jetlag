@@ -2,46 +2,57 @@
 
 _**Table of Contents**_
 <!-- TOC -->
-- [Network interface to vars table](#network-interface-to-vars-table)
-- [Install disk by-path vars](#install-disk-by-path-vars)
-- [Updating the OCP version](#updating-the-ocp-version)
-- [Override lab ocpinventory json file](#override-lab-ocpinventory-json-file)
-- [Using other network interfaces](#using-other-network-interfaces)
-- [Configuring NVMe install and etcd disks](#configuring-nvme-install-and-etcd-disks)
-- [DU Profile for SNOs](#du-profile-for-snos)
-- [Post Deployment Tasks](#post-deployment-tasks)
-- [Add/delete contents to the bastion registry](#adddelete-contents-to-the-bastion-registry)
+- [Jetlag Tips and additional Vars](#jetlag-tips-and-additional-vars)
+  - [Network interface to vars table](#network-interface-to-vars-table)
+  - [Install disk by-path vars](#install-disk-by-path-vars)
+  - [Updating the OCP version](#updating-the-ocp-version)
+  - [Override lab ocpinventory json file](#override-lab-ocpinventory-json-file)
+  - [Using other network interfaces](#using-other-network-interfaces)
+    - [Alternative method](#alternative-method)
+    - [Bonding in the scale/perf labs](#bonding-in-the-scaleperf-labs)
+  - [Configuring NVMe install and etcd disks](#configuring-nvme-install-and-etcd-disks)
+  - [DU Profile for SNOs](#du-profile-for-snos)
+  - [Post Deployment Tasks](#post-deployment-tasks)
+    - [SNO DU Profile](#sno-du-profile)
+      - [Performance Profile](#performance-profile)
+      - [Tuned Performance Patch](#tuned-performance-patch)
+      - [Installing Performance Addon Operator on OCP 4.9 or OCP 4.10](#installing-performance-addon-operator-on-ocp-49-or-ocp-410)
+  - [Add/delete contents to the bastion registry](#adddelete-contents-to-the-bastion-registry)
 <!-- /TOC -->
 
 
 ## Network interface to vars table
 
+**Network interfaces** - Jetlag automatically detects and configures network interfaces for common hardware in Scale Lab and Performance Lab using the `hw_nic_name` [mapping](../ansible/vars/lab.yml). You only need to manually set these if you want to override the defaults:
+- `bastion_lab_interface` - the bastion machine's lab accessible interface
+- `bastion_controlplane_interface` - the bastion machine interface connected to the OCP cluster nodes control plane
+- `controlplane_lab_interface` - the OCP cluster nodes lab accessible interface
+
 Values here reflect the default (Network 1 which maps to `controlplane_network_interface_idx: 0`). See this [section](#using-other-network-interfaces) to generate the proper inventory for a different network.
-Note that if these variables are not explicitely set then Jetlag auto configures them.
 
 **Scale Lab**
 
-| Hardware           | bastion_lab_interface | bastion_controlplane_interface | controlplane_lab_interface |
-| - | - | - | - |
-| Dell r660          | eno12399np0           | ens1f0                         | eno12399np0                |
-| Dell r650          | eno12399np0           | ens1f0                         | eno12399np0                |
-| Dell r640          | eno1np0               | ens1f0                         | eno1np0                    |
-| Dell r630          | enp129s0f0            | eno1                           | enp129s0f0                 |
-| Dell fc640         | eno1                  | eno2                           | eno1                       |
-| Supermicro 1029p   | eno1                  | ens2f0                         | eno1                       |
-| Supermicro 5039ms  | enp2s0f0              | enp1s0f0                       | enp2s0f0                   |
+| Hardware          | bastion_lab_interface | bastion_controlplane_interface | controlplane_lab_interface |
+| ----------------- | --------------------- | ------------------------------ | -------------------------- |
+| Dell r660         | eno12399np0           | ens1f0                         | eno12399np0                |
+| Dell r650         | eno12399np0           | ens1f0                         | eno12399np0                |
+| Dell r640         | eno1np0               | ens1f0                         | eno1np0                    |
+| Dell r630         | enp3s0f0              | eno1                           | enp3s0f0                   |
+| Dell fc640        | eno1                  | eno2                           | eno1                       |
+| Supermicro 1029p  | eno1                  | ens2f0                         | eno1                       |
+| Supermicro 5039ms | enp2s0f0              | enp1s0f0                       | enp2s0f0                   |
 
 Scale lab network table is available on the scale lab wiki.
 
 **Performance Lab**
 
-| Hardware           | bastion_lab_interface | bastion_controlplane_interface | controlplane_lab_interface |
-| - | - | - | - |
-| Dell r740xd        | eno3                  | eno1                           | eno3                       |
-| Dell r7425         | eno3                  | eno1                           | eno3                       |
-| Dell r7525         | eno1                  | enp33np0                       | eno1                       |
-| Dell r750          | eno8303               | ens3f0                         | eno8303                    |
-| Supermicro 6029p   | eno1                  | enp95s0f0                      | eno1                       |
+| Hardware         | bastion_lab_interface | bastion_controlplane_interface | controlplane_lab_interface |
+| ---------------- | --------------------- | ------------------------------ | -------------------------- |
+| Dell r740xd      | eno3                  | eno1                           | eno3                       |
+| Dell r7425       | eno3                  | eno1                           | eno3                       |
+| Dell r7525       | eno1                  | enp33np0                       | eno1                       |
+| Dell r750        | eno8303               | ens3f0                         | eno8303                    |
+| Supermicro 6029p | eno1                  | enp95s0f0                      | eno1                       |
 
 Performance lab network table is available on the performance lab wiki.
 
@@ -53,14 +64,27 @@ non-bootable disk or disk later in the boot order of hard disks. If this occurs,
 deployment will eventually fail as the installed OCP is unable to boot properly.
 
 > [!TIP]
-> Using the PCI paths (in a homogeneous Scale or Performance lab cloud) should be
-> consistent across all the machines, and is not subject to change during discovery.
-> Below are the extra vars along with the hardware used.
+> **Automatic Install Disk Selection:** For common hardware types in Scale Lab and Performance Lab,
+> Jetlag automatically selects the correct install disk using persistent `/dev/disk/by-path/`
+> references based on hardware model. See `hw_install_disk` mappings in `ansible/vars/lab.yml`.
+>
+> The automatic selection uses a fallback chain:
+> 1. Explicit variable override (`control_plane_install_disk`, `worker_install_disk`, `sno_install_disk`)
+> 2. Rack-unit-hardware specific mapping (e.g., `y37-h01-r740xd`)
+> 3. Rack-hardware specific mapping (e.g., `y37-r740xd`)
+> 4. Hardware default mapping (e.g., `r740xd`)
+> 5. Fallback to `/dev/sda`
+
+**When to override:** You typically only need to set `control_plane_install_disk`,
+`worker_install_disk`, or `sno_install_disk` if:
+- Your hardware model is not in the automatic mappings
+- You need a different disk than the default for your hardware
+- You are using BYOL (Bring Your Own Lab) outside of Scale/Performance labs
 
 For 3-node MNO deployments you only need to set `control_plane_install_disk`, if your
 MNO deployment has worker nodes then you will also need to set `worker_install_disk`.
 
-For SNO deployments set `sno_install_disk`.
+For SNO deployments set `sno_install_disk`. If you scale out your SNO deployment with worker nodes then you will also need to set `worker_install_disk`.
 
 If the machine configurations in your cloud are not homogeneous, you will need to
 edit the inventory file to set appropriate install paths for each machine.
@@ -72,25 +96,32 @@ edit the inventory file to set appropriate install paths for each machine.
 
 **Scale Lab**
 
-| Hardware  | Install disk path |
-| - | - |
-| Dell r750 | /dev/disk/by-path/pci-0000:05:00.0-ata-1.0 |
+| Hardware  | Install disk path                               |
+| --------- | ----------------------------------------------- |
+| Dell r750 | /dev/disk/by-path/pci-0000:05:00.0-ata-1.0      |
 | Dell r660 | /dev/disk/by-path/pci-0000:4a:00.0-scsi-0:0:1:0 |
 | Dell r650 | /dev/disk/by-path/pci-0000:67:00.0-scsi-0:2:0:0 |
 | Dell r640 | /dev/disk/by-path/pci-0000:18:00.0-scsi-0:2:0:0 |
+| Dell r630 | /dev/disk/by-path/pci-0000:02:00.0-scsi-0:2:0:0 |
 
 **Performance Lab**
 
-| Hardware | Install disk path |
-| - | - |
+| Hardware                                             | Install disk path                               |
+| ---------------------------------------------------- | ----------------------------------------------- |
 | Dell r740xd (SL-N, SL-G, SL-U, CL-N, CL-U-2, CL-G-2) | /dev/disk/by-path/pci-0000:18:00.0-scsi-0:2:0:0 |
-| Dell r740xd (CL-U-1, CL-G-1) | /dev/disk/by-path/pci-0000:86:00.0-scsi-0:2:0:0 |
-| Dell r750 | /dev/disk/by-path/pci-0000:05:00.0-ata-1 |
-| Dell r7425 | /dev/disk/by-path/pci-0000:e2:00.0-scsi-0:2:0:0 |
-| Dell r7525 | /dev/disk/by-path/pci-0000:01:00.0-scsi-0:2:0:0 |
-| SuperMicro 6029p | /dev/disk/by-path/pci-0000:00:11.5-ata-5 |
-| Dell xe8640  | /dev/disk/by-path/pci-0000:01:00.0-nvme-1 |
-| Dell xe9680  | /dev/disk/by-path/pci-0000:01:00.0-nvme-1 |
+| Dell r740xd (CL-U-1, CL-G-1)                         | /dev/disk/by-path/pci-0000:86:00.0-scsi-0:2:0:0 |
+| Dell r750                                            | /dev/disk/by-path/pci-0000:05:00.0-ata-1        |
+| Dell r7425                                           | /dev/disk/by-path/pci-0000:e2:00.0-scsi-0:2:0:0 |
+| Dell r7525                                           | /dev/disk/by-path/pci-0000:01:00.0-scsi-0:2:0:0 |
+| Dell r760                                            | /dev/disk/by-path/pci-0000:3f:00.0-scsi-0:0:1:0 |
+| SuperMicro 6029p                                     | /dev/disk/by-path/pci-0000:00:11.5-ata-5        |
+| Dell xe8640                                          | /dev/disk/by-path/pci-0000:01:00.0-nvme-1       |
+| Dell xe9680                                          | /dev/disk/by-path/pci-0000:01:00.0-nvme-1       |
+
+> [!NOTE]
+> The above hardware models are automatically configured in Jetlag via the `hw_install_disk`
+> mappings in `ansible/vars/lab.yml`. You typically do not need to manually set install
+> disk variables for these common hardware types unless you need to override the defaults.
 
 To find your machine's by-path reference:
 
@@ -98,6 +129,9 @@ To find your machine's by-path reference:
 `sda` in this example.
 2. Use `find` to find the PCI path to that disk, which in this example is
 `/dev/disk/by-path/pci-0000:18:00.0-scsi-0:2:0:0`.
+
+> [!TIP]
+> You can use use [this playbook](https://github.com/sadsfae/ansible-dbp) to generate a YAML file with all of your systems `/dev/disk/by-path` for every detected disk.  Ideally run this when you first receive machines if you are using a [QUADS-managed](https://github.com/redhat-performance/quads) lab.
 
 > [!WARNING]
 > This assumes that the bastion hardware configuration is homogeneous: in
@@ -140,7 +174,8 @@ are `candidate-4.17`, `candidate-4.16` or `latest` which points to the early can
 build of the latest in development release. Checkout https://mirror.openshift.com/pub/openshift-v4/clients/ocp/
 for a list of available builds for `ga` releases and https://mirror.openshift.com/pub/openshift-v4/clients/ocp-dev-preview/
 for a list of `dev` releases. Nightly `ci` builds are tricky and require determining
-exact builds you can use, an example of `ocp_version` with `ocp_build: ci` is `4.19.0-0.nightly-2025-02-25-035256`.
+exact builds you can use, an example of `ocp_version` with `ocp_build: ci` is `4.19.0-0.nightly-2025-02-25-035256`, For 'ci' builds check latest nightly from  https://amd64.ocp.releases.ci.openshift.org/.
+
 
 ```yaml
 ocp_build: "ga"
@@ -167,7 +202,7 @@ Saved credentials for registry.ci.openshift.org into ci_ps.json
 	}
 }
 ```
-* Append or update the pull secret retrieved from above under pull_secret.txt in repo base directory.
+* Append or update the pull secret retrieved from above under pull-secret.txt in repo base directory.
 
 You must stop and remove all assisted-installer containers on the bastion with [clean the pods and containers off the bastion](troubleshooting.md#cleaning-all-podscontainers-off-the-bastion-machines) and then rerun the setup-bastion step in order to setup your bastion's assisted-installer to the version you specified before deploying a fresh cluster with that version.
 
@@ -190,8 +225,8 @@ In this example using nic `ens2f0` in a cluster of r650 nodes is shown.
 1. Select which NIC you want to use instead of the default, in this example, `ens2f0`.
 2. Look for your server model number in your lab's network table/chart then select the network you want configured as your primary network using the following mapping:
 
-| Network | YAML variable |
-| ------- | ------------- |
+| Network   | YAML variable                           |
+| --------- | --------------------------------------- |
 | Network 1 | `controlplane_network_interface_idx: 0` |
 | Network 2 | `controlplane_network_interface_idx: 1` |
 | Network 3 | `controlplane_network_interface_idx: 2` |
@@ -212,10 +247,44 @@ controlplane_network_interface_idx: 2
 ### Alternative method
 In case you are bringing your own lab, set `controlplane_network_interface` to the desired name, eg. `controlplane_network_interface: ens2f0`.
 
+### Bonding in the scale/perf labs
+To support some particular use cases jetlag implements the option for LACP bonding through the var `enable_bond`.
+When enabled, uses the first two network interfaces by default (indices 1 & 2).
+Only works with private networks (`public_vlan: false`) and homogeneous hardware.
+At the moment QUADS does not expose any APIs for this kind of networking setup in the labs, so unless you have discussed your particular use case with the DevOps team and the network setup of your cloud allocation is ready to accommodate this config, please disconsider this option.
+
+#### VLAN subinterface on bonding
+Additionally, you can enable VLAN subinterfaces on top of bond0 using the following configuration:
+
+```yaml
+enable_bond: true
+enable_bond_vlan: true
+bond_vlan_id: 10
+# bond_vlan_interface_name: bond0.10  # Optional: defaults to bond0.<vlan_id>
+```
+
+This creates a VLAN subinterface (bond0.10) on top of the bond0 interface with the specified VLAN tag. The IP addresses are assigned to the VLAN subinterface instead of the bond0 interface directly.
+
+**What this configures:**
+- **Bastion host**: Creates bond0 (no IP) + bond0.10 (with controlplane IP) using nmcli
+- **Cluster nodes**: Creates bond0 (no IP) + bond0.10 (with node IPs) using nmstate
+- **Network routing**: All traffic flows through the VLAN subinterface
+
+**Requirements:**
+- `enable_bond` must be set to `true`
+- `bond_vlan_id` must be between 1-4094
+- Only works with private networks (`public_vlan: false`)
+- Network infrastructure must support the specified VLAN tag
+
 ## Configuring NVMe install and etcd disks
 
-If you require the install disk or etcd disk to be on a specific drive,
-they can be specified directly through the vars file `all.yml`.
+If you require the install disk or etcd disk to be on a specific drive (different from
+the automatic selections), they can be specified directly through the vars file `all.yml`.
+
+This is typically used when:
+- You want to install on NVMe drives instead of the default SATA/SAS disks
+- You need to override the automatic hardware-based selection
+- Your specific hardware configuration requires non-standard disk selection
 
 To ensure the drive will be correctly mapped at each boot,
 we will locate the `/dev/disk/by-path` link to each drive.
@@ -398,4 +467,49 @@ function rm_XXX_tag {
    | tr -d '\r' | sed -En 's/^Docker-Content-Digest: (.*)/\1/pi'
  )"
 }
+```
+
+**Automating Image Mirroring**
+
+Instead of manually running `oc image mirror` commands, you can automate mirroring generic container images into your bastion registry during the `sync-operator-index` playbook execution.
+
+Simply add the `additional_images` list to your `ansible/vars/sync-operator-index.yml` file:
+
+```yaml
+# Sync extra container images directly (without renaming) into the destination registry.
+additional_images:
+- quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
+- quay.io/namespace/image_name:example_tag
+```
+
+> [!NOTE]
+> The `additional_images` parameter mirrors the images exactly as they are named. It does not support renaming the target destination path or tag. Images requiring a rename must still be mirrored manually using `oc image mirror`.
+
+**Automating Image Mirroring with Renaming**
+
+Instead of manually running `oc image mirror` commands, you can automate mirroring generic container images into your bastion registry during the `sync-operator-index` playbook execution. This method uses a separate background task to process and mirror the images, ensuring it fully supports renaming the target destination path.
+
+Simply add the `extra_images` list to your `ansible/vars/sync-operator-index.yml` file:
+
+```yaml
+# Sync extra container images using oc image mirror, which allows renaming.
+extra_images:
+- src: registry.redhat.io/openshift4/ztp-site-generate-rhel8:v4.21.0-2
+  dest: openshift-kni/ztp-site-generator:v4.21.0-2
+- src: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
+  dest: minio/minio:RELEASE.2025-09-07T16-13-09Z
+```
+
+**Automating ImageTagMirrorSet (ITMS) Creation**
+
+When working in disconnected environments, some core pods or debugging tools may have external registry paths hardcoded (e.g., `registry.redhat.io/rhel9/support-tools`). To ensure these pods can pull images from your bastion registry without modifying their manifests, Jetlag can automatically create `ImageTagMirrorSet` (ITMS) resources during the post-cluster-install phase.
+
+Simply add the `image_tag_mirrors` list to your `ansible/vars/all.yml` file. This tells OpenShift to intercept requests to the `source` registry and redirect them to your local bastion registry under the `dest` namespace.
+
+```yaml
+# Automatically generate ITMS resources post-install
+# The destination will automatically point to your bastion: <registry_host>:<registry_port>/<dest>
+image_tag_mirrors:
+- source: registry.redhat.io/rhel9
+  dest: rhel9
 ```

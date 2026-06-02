@@ -20,6 +20,7 @@ _**Table of Contents**_
   - [Incorrect bastion controlplane interface](#incorrect-bastion-controlplane-interface)
   - [Changed controlplane network on bastion](#changed-controlplane-network-on-bastion)
   - [Root disk too small](#root-disk-too-small)
+  - [MinIO](#minio)
 - [Generic Hardware](#generic-hardware)
   - [Minimum Firmware Versions](#minimum-firmware-versions)
 - [Dell](#dell)
@@ -290,6 +291,10 @@ Several services are run on the bastion in order to automate the tasks that Jetl
 | HAProxy (When disconnected)                             | 6443, 443, 80             |
 | Gogs - Self-hosted Git (When `setup_bastion_gogs=true`) | 10881 (http), 10022 (git) |
 | Dnsmasq / Coredns                                       | 53                        |
+| Grafana instance for hypervisor monitoring              | 3000                      |
+| Prometheus server for hypervisor monitoring             | 9090                      |
+| MinIO S3 API (When `setup_bastion_minio=true`)          | 9000                      |
+| MinIO web console (When `setup_bastion_minio=true`)     | 9001                      |
 
 Example accessing the bastion registry and listing repositories:
 ```console
@@ -323,7 +328,7 @@ In the event your bastion's running containers have incorrect data or you are de
 Clean **all** containers (on bastion machine):
 
 ```console
-podman ps | awk '{print $1}' | xargs -I % podman stop %; podman ps -a | awk '{print $1}' | xargs -I % podman rm %; podman pod ps | awk '{print $1}' | xargs -I % podman pod rm %
+podman pod ps -q | xargs -I % podman pod stop %; podman ps -q | xargs -I % podman stop %; podman pod ps -q | xargs -I % podman pod rm %; podman ps -aq | xargs -I % podman rm %
 ```
 
 When replacing the ocp version, just remove the assisted-installer pod and container, then rerun the `setup-bastion.yml` playbook.
@@ -455,6 +460,54 @@ additional container images from its local disconnected registry. Some machines 
 lab have been found to have root disks which are on the order of only 70G and can fill
 with 1 or 2 OCP releases synced. If the bastion is one of those machines, relocate `/opt`
 to a separate larger disk so the machine does not run out of space on the root disk.
+
+
+## MinIO
+
+For full MinIO setup and usage documentation see [docs/bastion-minio.md](bastion-minio.md).
+
+**Check MinIO pod and container status:**
+
+```console
+[root@<bastion> ~]# podman pod ps
+[root@<bastion> ~]# podman ps --pod
+```
+
+**Check MinIO logs:**
+
+```console
+[root@<bastion> ~]# podman logs minio
+```
+
+**MinIO web console or S3 API unreachable:**
+
+Verify the MinIO pod is running and listening on the expected ports:
+
+```console
+[root@<bastion> ~]# podman pod ps
+[root@<bastion> ~]# ss -tlnp | grep -E '9000|9001'
+```
+
+If the pod is stopped, restart it:
+
+```console
+[root@<bastion> ~]# podman pod start minio
+```
+
+Or rerun the MinIO playbook to fully reconcile the pod and container state:
+
+```console
+[root@<bastion> jetlag]# ansible-playbook -i ansible/inventory/cloud99.local ansible/bastion-minio.yml
+```
+
+**Clear MinIO data between cluster deployments:**
+
+Use the dedicated clean playbook to wipe all stored data and restart MinIO with empty buckets:
+
+```console
+[root@<bastion> jetlag]# ansible-playbook -i ansible/inventory/cloud99.local ansible/bastion-minio-clean.yml
+```
+
 
 # Generic Hardware
 

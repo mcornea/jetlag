@@ -30,7 +30,7 @@ _**Table of Contents**_
 
 # Deploy a VMNO
 
-This quickstart assumes you already have selected a bastion, setup ssh, downloaded your pull_secret.txt and cloned the jetlag repo. An example cloud consisting of Dell r740xds called `cloud99` in the performancelab is used for the example.
+This quickstart assumes you already have selected a bastion, setup ssh, downloaded your pull-secret.txt and cloned the jetlag repo. An example cloud consisting of Dell r740xds called `cloud99` in the performancelab is used for the example.
 
 The main steps to deploy a VMNO are as follows
 
@@ -75,9 +75,10 @@ release. Checkout https://mirror.openshift.com/pub/openshift-v4/clients/ocp/ for
 of available builds for `ga` releases and https://mirror.openshift.com/pub/openshift-v4/clients/ocp-dev-preview/
 for a list of `dev` releases. Nightly `ci` builds are tricky and require determining
 exact builds you can use, an example of `ocp_version` with `ocp_build: ci` is
-`4.19.0-0.nightly-2025-02-25-035256`.
+`4.19.0-0.nightly-2025-02-25-035256`, For 'ci' builds check latest nightly from  https://amd64.ocp.releases.ci.openshift.org/.
 
-Note: user has to add registry.ci.openshift.org token in pull_secret.txt for `ci` builds.
+
+Note: user has to add registry.ci.openshift.org token in pull-secret.txt for `ci` builds.
 
 ### Bastion node vars
 
@@ -96,6 +97,12 @@ bastion_controlplane_interface: eno1
 ```
 
 Double check your nic names with your bastion machine.
+
+It's recommended to setup the monitoring for the hypervisor to keep track of an actual resource consumption, especially for the cases of high overcommit ratio:
+```yaml
+setup_hv_metrics: true
+```
+This will setup Prometheus instance on the bastion node that will pull data from hypervisors.
 
 ### OCP node vars
 
@@ -123,8 +130,20 @@ hw_vm_counts:
       nvme0n1: 7
 ```
 
+When mixing different machines, the hv_vm_counts may be adjusted for those machine models to create the same number of VMs per hypervisor. For example, when mixing Dell r640 and r650 in ScaleLab, the following counts were used:
+
+```yaml
+hw_vm_counts:
+  scalelab:
+    r650:
+      default: 4
+      nvme0n1: 16
+```
+
 > [!NOTE]
 > Depending upon your hardware, you may have to parition and format a 2nd disk to help store VM disk files.
+
+In some VM scenarios, hugepages may be required. To configure VMs with hugepages, enable with the variable `enable_hugepages`, and configure specifics with other similar variables found in: `ansible/roles/hv-install/defaults/main.yml`.
 
 ## Configure Ansible vars in `hv.yml`
 
@@ -138,6 +157,14 @@ Change `lab` to `lab: performancelab`
 Change `hv_vm_generate_manifests` to `hv_vm_generate_manifests: false`
 
 VM manifests are only used in conjunction with ACM/MCE testing.
+
+
+For the metrics collection to work, set following variable:
+```yaml
+setup_hv_metrics: true
+```
+
+This will setup the prometheus node_exporter container on all hypervisors, and metrics will be available from Bastion node.
 
 ## Review vars `all.yml` and `hv.yml`
 
@@ -167,7 +194,7 @@ ocp_build: ga
 # For "ga" builds, examples are "latest-4.17", "latest-4.16", "4.17.17" or "4.16.35"
 # For "dev" builds, examples are "candidate-4.17", "candidate-4.16" or "latest"
 # For "ci" builds, an example is "4.19.0-0.nightly-2025-02-25-035256"
-ocp_version: "latest-4.18"
+ocp_version: "latest-4.21"
 
 # Set to true ONLY if you have a public routable vlan in your scalelab or performancelab cloud.
 # Autoconfigures cluster_name, base_dns_name, controlplane_network_interface_idx, controlplane_network,
@@ -189,9 +216,9 @@ enable_cnv_install: false
 
 ssh_private_key_file: ~/.ssh/id_rsa
 ssh_public_key_file: ~/.ssh/id_rsa.pub
-# Place your pull_secret.txt in the base directory of the cloned jetlag repo, Example:
-# [root@<bastion> jetlag]# ls pull_secret.txt
-pull_secret: "{{ lookup('file', '../pull_secret.txt') }}"
+# Place your pull-secret.txt in the base directory of the cloned jetlag repo, Example:
+# [root@<bastion> jetlag]# ls pull-secret.txt
+pull_secret: "{{ lookup('file', '../pull-secret.txt') }}"
 
 ################################################################################
 # Bastion node vars
@@ -211,6 +238,9 @@ setup_bastion_registry: false
 
 # Use in conjunction with ipv6 based clusters
 use_bastion_registry: false
+
+# Setup Hypervisor metrics collection for VMNO deployments
+setup_hv_metrics: true
 
 ################################################################################
 # OCP node vars
@@ -284,7 +314,10 @@ hv_vm_manifest_acm_cr: true
 # Retrieves the bastion pull-secret instead of below pull-secret
 use_bastion_registry: false
 # Provide pull-secret for connected manifests
-pull_secret: "{{ lookup('file', '../pull_secret.txt') | b64encode }}"
+pull_secret: "{{ lookup('file', '../pull-secret.txt') | b64encode }}"
+
+# Setup Prometheus node_exporter container
+setup_hv_metrics: true
 ```
 
 ## Run playbooks
@@ -484,3 +517,10 @@ vm00008   Ready    worker                 1d    v1.31.7
 (.ansible) [root@<bastion> jetlag]# cat /root/vmno/kubeadmin-password
 xxxxx-xxxxx-xxxxx-xxxxx
 ```
+
+## Disabling NetworkManager devices and connections for SR-IOV devices on VMs
+
+One option of creating SR-IOV capable interfaces in a VM is to create them using the Intel IGB driver.
+This may be achieved by setting the variable `vm_igb_nics: true` in your variables.
+
+**Please note:** When VMs are created with SR-IOV devices using the IGB driver, the devices and connections may never fully initialize. NetworkManager repeatedly attempts to start them, which results in a large amount of churn on the VMs. A workaround to this churn is to force the devices down and connections' autoconnect off for those created for the interfaces.

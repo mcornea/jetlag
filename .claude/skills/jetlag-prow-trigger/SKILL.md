@@ -1,4 +1,5 @@
 ---
+name: jetlag-prow-trigger
 description: Trigger Prow tests on a PR and monitor results
 argument-hint: "<PR#> [job-name]"
 ---

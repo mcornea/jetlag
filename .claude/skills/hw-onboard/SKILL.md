@@ -1,4 +1,5 @@
 ---
+name: hw-onboard
 description: Onboard new hardware into Jetlag - discover NIC/disk config and update lab.yml
 argument-hint: "<hw_model> <lab> [quads_cloud_or_hostname]"
 ---

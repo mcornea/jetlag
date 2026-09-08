@@ -1,4 +1,5 @@
 ---
+name: jetlag-issue-fix
 description: Full issue-to-fix-to-test loop for Jetlag
 argument-hint: "<issue#>"
 ---

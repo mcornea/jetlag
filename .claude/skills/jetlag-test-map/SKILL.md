@@ -1,4 +1,5 @@
 ---
+name: jetlag-test-map
 description: Map changed files to Prow test jobs
 argument-hint: "[PR#]"
 ---

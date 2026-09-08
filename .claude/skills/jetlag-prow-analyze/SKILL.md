@@ -1,4 +1,5 @@
 ---
+name: jetlag-prow-analyze
 description: Analyze failed Prow job logs for Jetlag
 argument-hint: "<prow-url>"
 ---

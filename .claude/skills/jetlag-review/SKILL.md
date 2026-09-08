@@ -1,4 +1,5 @@
 ---
+name: jetlag-review
 description: Fetch and review a GitHub PR
 ---
 
